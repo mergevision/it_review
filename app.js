@@ -385,6 +385,7 @@ ${notDone.length > 0 ? `<div style="margin-bottom:1.5rem">
   ${notDone.map(i => `<div class="fb-item red"><span>✕</span><span style="font-size:12px">${i.t}</span></div>`).join('')}
 </div>` : ''}
 <div class="flex-row flex-center flex-wrap mb-2">
+  <button class="btn btn-dark" onclick="aPDF()">📥 PDFで保存</button>
   <button class="btn btn-secondary" onclick="document.getElementById('as-body').style.display='block';document.getElementById('as-result').style.display='none'">← 戻る</button>
   <button class="btn btn-secondary" onclick="aReset()">↺ リセット</button>
 </div>
@@ -447,89 +448,159 @@ async function saveResult(type, score, risk, details) {
 }
 
 // ============================================================
-// PDF出力（文字化け対策：英語ベース）
+// PDF出力（日本語SVG画像方式 + レーダーチャート埋め込み）
 // ============================================================
+
+// SVGテキストをPNG dataURLに変換するヘルパー
+function svgTextToPng(lines, opts) {
+  const { fontSize=13, bold=false, color='#1a2e35', w=500, lineH=20 } = opts||{};
+  const h = lines.length * lineH + 10;
+  const escaped = lines.map(l => l.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));
+  const tspans = escaped.map((l,i) => `<tspan x="0" dy="${i===0?0:lineH}">${l}</tspan>`).join('');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
+    <text y="${fontSize}" font-size="${fontSize}" font-family="'Noto Sans JP',sans-serif"
+      font-weight="${bold?'700':'400'}" fill="${color}">${tspans}</text></svg>`;
+  const img = new Image();
+  const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  return new Promise(res => {
+    img.onload = () => {
+      const cv = document.createElement('canvas'); cv.width=w; cv.height=h;
+      cv.getContext('2d').drawImage(img,0,0);
+      res({ url: cv.toDataURL('image/png'), w, h });
+    };
+    img.src = url;
+  });
+}
+
+async function buildPDF(type, scoreVal, riskLabel, catData, catDefs, radarCanvasId) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:'p', unit:'mm', format:'a4' });
+  const W=210, pad=20;
+
+  // ヘッダー背景
+  doc.setFillColor(10,42,53); doc.rect(0,0,W,38,'F');
+
+  // タイトル（SVG画像）
+  const titleImg = await svgTextToPng(['IT簡易診断レポート'], {fontSize:20,bold:true,color:'#ffffff',w:400,lineH:28});
+  doc.addImage(titleImg.url,'PNG', pad, 7, 80, 14);
+
+  // サブ（会社名・日付）
+  const d = new Date();
+  const dateStr = d.getFullYear()+'/'+(d.getMonth()+1)+'/'+d.getDate();
+  const subLines = currentUser ? [currentUser.name+' / '+currentUser.company, dateStr] : [dateStr];
+  const subImg = await svgTextToPng(subLines, {fontSize:10,color:'#9FE1CB',w:500,lineH:16});
+  doc.addImage(subImg.url,'PNG', pad, 22, 100, 12);
+
+  let y = 48;
+  const [sr,sg,sb] = scoreVal>=75?[29,158,117]:scoreVal>=50?[186,117,22]:[226,75,74];
+  const riskJa = riskLabel;
+
+  // スコアボックス
+  const scoreHeadImg = await svgTextToPng(['総合スコア'], {fontSize:11,bold:true,color:'#1a2e35',w:200});
+  doc.addImage(scoreHeadImg.url,'PNG', pad, y, 30, 5); y+=7;
+  doc.setFillColor(240,250,248); doc.roundedRect(pad,y,W-pad*2,28,3,3,'F');
+  doc.setFontSize(36); doc.setFont('helvetica','bold'); doc.setTextColor(sr,sg,sb);
+  doc.text(String(scoreVal), W/2-14, y+20);
+  doc.setFontSize(16); doc.setTextColor(100,140,150); doc.text('/100', W/2+8, y+20);
+  // リスクバッジ
+  doc.setFillColor(sr,sg,sb); doc.roundedRect(W/2+30,y+7,34,12,3,3,'F');
+  const riskImg = await svgTextToPng([riskJa], {fontSize:10,bold:true,color:'#ffffff',w:160,lineH:16});
+  doc.addImage(riskImg.url,'PNG', W/2+31, y+8, 32, 8);
+  y += 36;
+
+  // レーダーチャート埋め込み
+  const radarCanvas = document.getElementById(radarCanvasId);
+  if (radarCanvas) {
+    const chartImg = radarCanvas.toDataURL('image/png');
+    const chartHeadImg = await svgTextToPng(['カテゴリ別レーダーチャート'], {fontSize:11,bold:true,color:'#1a2e35',w:300});
+    doc.addImage(chartHeadImg.url,'PNG', pad, y, 60, 5); y+=7;
+    const cSize = 80;
+    doc.addImage(chartImg,'PNG', W/2-cSize/2, y, cSize, cSize);
+    y += cSize + 4;
+  }
+
+  // カテゴリ別スコアバー
+  const catHeadImg = await svgTextToPng(['カテゴリ別スコア'], {fontSize:11,bold:true,color:'#1a2e35',w:300});
+  doc.addImage(catHeadImg.url,'PNG', pad, y, 50, 5); y+=7;
+  const cw = (W-pad*2-8)/2;
+  for (let i=0; i<catDefs.length; i++) {
+    const cat = catDefs[i];
+    const p = catData[cat.id] ?? 0;
+    const [cr,cg,cb] = p>=75?[29,158,117]:p>=50?[186,117,22]:[226,75,74];
+    const cx = i%2===0 ? pad : pad+cw+8;
+    if (i%2===0 && i>0) y+=20;
+    doc.setFillColor(248,252,252); doc.roundedRect(cx,y,cw,17,2,2,'F');
+    doc.setDrawColor(220,235,235); doc.roundedRect(cx,y,cw,17,2,2,'S');
+    const catImg = await svgTextToPng([cat.name], {fontSize:9,color:'#506470',w:200});
+    doc.addImage(catImg.url,'PNG', cx+3, y+2, 35, 6);
+    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(cr,cg,cb);
+    doc.text(String(p)+(type==='詳細監査'?'%':'点'), cx+cw-4, y+8, {align:'right'});
+    doc.setFillColor(220,235,235); doc.rect(cx+3,y+10,cw-6,3,'F');
+    doc.setFillColor(cr,cg,cb); doc.rect(cx+3,y+10,(cw-6)*p/100,3,'F');
+  }
+  y += 26;
+
+  // フィードバック
+  const fbHeadImg = await svgTextToPng(['フィードバック'], {fontSize:11,bold:true,color:'#1a2e35',w:300});
+  doc.addImage(fbHeadImg.url,'PNG', pad, y, 40, 5); y+=7;
+  const fbMap = {
+    asset:  {ok:'資産管理は概ね良好です。',     mid:'資産管理に改善の余地があります。',   ng:'資産管理のリスクが高い状態です。'},
+    sec:    {ok:'セキュリティは概ね良好です。', mid:'セキュリティに改善の余地があります。',ng:'セキュリティリスクが高い状態です。'},
+    backup: {ok:'バックアップは概ね良好です。', mid:'バックアップに改善の余地があります。',ng:'バックアップが不十分です。'},
+    lic:    {ok:'ライセンス管理は良好です。',   mid:'ライセンス管理に改善が必要です。',    ng:'ライセンス管理が不十分です。'},
+    dx:     {ok:'DX化は概ね進んでいます。',     mid:'紙業務が一部残っています。',          ng:'紙業務が多く残っています。'},
+    helpdesk:{ok:'ヘルプデスクは良好です。',    mid:'ヘルプデスクに改善が必要です。',      ng:'ヘルプデスク体制が不十分です。'},
+    software:{ok:'ソフト管理は良好です。',      mid:'ソフト管理に改善が必要です。',        ng:'ソフト管理が不十分です。'},
+    server: {ok:'サーバ管理は良好です。',       mid:'サーバ管理に改善が必要です。',        ng:'サーバ管理が不十分です。'},
+    security:{ok:'セキュリティ管理は良好です。',mid:'セキュリティ管理に改善が必要です。', ng:'セキュリティ管理が不十分です。'},
+    access: {ok:'アクセス管理は良好です。',     mid:'アクセス管理に改善が必要です。',      ng:'アクセス管理が不十分です。'},
+    info_sec:{ok:'情報教育は良好です。',        mid:'情報教育に改善が必要です。',          ng:'情報教育が不十分です。'},
+    audit:  {ok:'監査対応は良好です。',         mid:'監査対応に改善が必要です。',          ng:'監査対応が不十分です。'},
+  };
+  for (const cat of catDefs) {
+    const p = catData[cat.id] ?? 0;
+    const [fr,fg,fb2] = p>=75?[234,243,222]:p>=50?[250,238,218]:[252,235,235];
+    const [lr,lg,lb] = p>=75?[99,153,34]:p>=50?[186,117,22]:[226,75,74];
+    const fb = fbMap[cat.id] || {ok:'良好です。',mid:'改善の余地があります。',ng:'要対応です。'};
+    const msg = p>=75?fb.ok:p>=50?fb.mid:fb.ng;
+    if (y > 265) { doc.addPage(); y=20; }
+    doc.setFillColor(fr,fg,fb2); doc.roundedRect(pad,y,W-pad*2,15,2,2,'F');
+    doc.setFillColor(lr,lg,lb); doc.rect(pad,y,2,15,'F');
+    const fbImg = await svgTextToPng([cat.name+'　'+msg], {fontSize:8.5,color:'#28404a',w:520,lineH:14});
+    doc.addImage(fbImg.url,'PNG', pad+4, y+2, W-pad*2-8, 10);
+    y+=17;
+  }
+
+  // CTA
+  y = Math.max(y+4, 262);
+  if (y > 270) { doc.addPage(); y=20; }
+  doc.setFillColor(10,42,53); doc.roundedRect(pad,y,W-pad*2,24,3,3,'F');
+  const ctaImg = await svgTextToPng(
+    ['この結果を専門家に見てもらいませんか？','IT担当がいなくても大丈夫。まず話を聞かせてください。'],
+    {fontSize:9.5,color:'#9FE1CB',w:520,lineH:16}
+  );
+  doc.addImage(ctaImg.url,'PNG', pad+4, y+3, W-pad*2-8, 18);
+
+  doc.save('IT診断レポート.pdf');
+}
+
 function sPDF() {
   const { catPct, total } = calcSScores();
-  const risk = total >= 75 ? 'Low Risk' : total >= 50 ? 'Medium Risk' : 'High Risk';
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
-  const W = 210, pad = 20;
+  const risk = total>=75?'低リスク':total>=50?'中リスク':'高リスク';
+  buildPDF('簡易診断', total, risk, catPct, SCATS, 's-radar');
+}
 
-  doc.setFillColor(10, 42, 53); doc.rect(0, 0, W, 38, 'F');
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.setTextColor(255, 255, 255);
-  doc.text('IT Diagnosis Report', pad, 15);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(157, 225, 203);
-  if (currentUser) doc.text(currentUser.name + ' / ' + currentUser.company, pad, 24);
-  const d = new Date();
-  doc.setTextColor(157, 225, 203);
-  doc.text(d.getFullYear() + '/' + (d.getMonth()+1) + '/' + d.getDate(), W - pad, 24, { align: 'right' });
-
-  let y = 50;
-  const [sr, sg, sb] = total >= 75 ? [29,158,117] : total >= 50 ? [186,117,22] : [226,75,74];
-  doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(26, 46, 53);
-  doc.text('Overall Score', pad, y); y += 7;
-  doc.setFillColor(240, 250, 248); doc.roundedRect(pad, y, W - pad * 2, 28, 3, 3, 'F');
-  doc.setFontSize(36); doc.setTextColor(sr, sg, sb);
-  doc.text(String(total), W / 2 - 14, y + 19);
-  doc.setFontSize(16); doc.setTextColor(100, 140, 150); doc.text('/ 100', W / 2 + 8, y + 19);
-  doc.setFillColor(sr, sg, sb); doc.roundedRect(W / 2 + 30, y + 7, 32, 12, 3, 3, 'F');
-  doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(255, 255, 255);
-  doc.text(risk, W / 2 + 46, y + 14, { align: 'center' });
-  y += 38;
-
-  const nameMap = { asset: 'Asset Mgmt', sec: 'Security', backup: 'Backup', lic: 'License', dx: 'Doc/DX' };
-  doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(26, 46, 53);
-  doc.text('Category Scores', pad, y); y += 7;
-  const cw = (W - pad * 2 - 8) / 2;
-  SCATS.forEach((cat, i) => {
-    const p = catPct[cat.id];
-    const [cr, cg, cb] = p >= 75 ? [29,158,117] : p >= 50 ? [186,117,22] : [226,75,74];
-    const cx = i % 2 === 0 ? pad : pad + cw + 8;
-    if (i % 2 === 0 && i > 0) y += 19;
-    doc.setFillColor(248, 252, 252); doc.roundedRect(cx, y, cw, 16, 2, 2, 'F');
-    doc.setDrawColor(220, 235, 235); doc.roundedRect(cx, y, cw, 16, 2, 2, 'S');
-    doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(80, 100, 110);
-    doc.text(nameMap[cat.id] || cat.name, cx + 4, y + 6.5);
-    doc.setFont('helvetica', 'bold'); doc.setTextColor(cr, cg, cb);
-    doc.text(String(p), cx + cw - 4, y + 6.5, { align: 'right' });
-    doc.setFillColor(220, 235, 235); doc.rect(cx + 4, y + 9, cw - 8, 3, 'F');
-    doc.setFillColor(cr, cg, cb); doc.rect(cx + 4, y + 9, (cw - 8) * p / 100, 3, 'F');
+function aPDF() {
+  const catR = AUDIT_CATS.map(cat => {
+    const done = (aChecked[cat.id] || new Set()).size;
+    return { ...cat, pct: Math.round((done / cat.items.length) * 100) };
   });
-  y += 28;
-
-  const fbMap = {
-    asset: { ok: 'Asset mgmt is in good shape.', mid: 'Improvements needed in asset tracking.', ng: 'Urgent: asset mgmt needs attention.' },
-    sec:   { ok: 'Security posture is solid.', mid: 'Security has room for improvement.', ng: 'High security risk. Act immediately.' },
-    backup:{ ok: 'Backup practices are solid.', mid: 'Backup setup needs improvements.', ng: 'Insufficient backup. Risk of data loss.' },
-    lic:   { ok: 'License mgmt is under control.', mid: 'License mgmt could be more systematic.', ng: 'License mgmt is inadequate.' },
-    dx:    { ok: 'Digitalization is progressing well.', mid: 'Some paper-based processes remain.', ng: 'Heavy paper reliance. DX recommended.' },
-  };
-  doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(26, 46, 53);
-  doc.text('Feedback', pad, y); y += 7;
-  SCATS.forEach(cat => {
-    const p = catPct[cat.id];
-    const [fr, fg, fb2] = p >= 75 ? [234,243,222] : p >= 50 ? [250,238,218] : [252,235,235];
-    const [lr, lg, lb] = p >= 75 ? [99,153,34] : p >= 50 ? [186,117,22] : [226,75,74];
-    const msg = p >= 75 ? fbMap[cat.id].ok : p >= 50 ? fbMap[cat.id].mid : fbMap[cat.id].ng;
-    doc.setFillColor(fr, fg, fb2); doc.roundedRect(pad, y, W - pad * 2, 14, 2, 2, 'F');
-    doc.setFillColor(lr, lg, lb); doc.rect(pad, y, 2, 14, 'F');
-    doc.setFontSize(8.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(40, 60, 70);
-    doc.text((nameMap[cat.id] || cat.name) + ' - ' + p + 'pts', pad + 5, y + 6);
-    doc.setFont('helvetica', 'normal'); doc.setTextColor(60, 80, 90);
-    doc.text(msg, pad + 5, y + 11);
-    y += 16;
-  });
-
-  y = Math.max(y + 6, 258);
-  doc.setFillColor(10, 42, 53); doc.roundedRect(pad, y, W - pad * 2, 24, 3, 3, 'F');
-  doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(29, 158, 117);
-  doc.text('Want an expert to review your results?', W / 2, y + 9, { align: 'center' });
-  doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(157, 200, 200);
-  doc.text('IT support available even without a dedicated IT team.', W / 2, y + 15, { align: 'center' });
-  doc.text('contact@nakty.jp', W / 2, y + 21, { align: 'center' });
-
-  doc.save('IT-Diagnosis-Report.pdf');
+  const totalDone = AUDIT_CATS.reduce((a,c)=>a+(aChecked[c.id]||new Set()).size, 0);
+  const totalItems = AUDIT_CATS.reduce((a,c)=>a+c.items.length, 0);
+  const pct = Math.round((totalDone/totalItems)*100);
+  const status = pct>=80?'管理良好':pct>=50?'要改善':'未整備が多い';
+  const details = Object.fromEntries(catR.map(c=>[c.id, c.pct]));
+  buildPDF('詳細監査', pct, status, details, AUDIT_CATS, 'a-radar');
 }
 
 // ============================================================
