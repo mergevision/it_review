@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IT診断サービス | nakty</title>
+<meta name="description" content="会社のITを無料で診断。資産管理・セキュリティ・書類DX化のリスクを5分で可視化します。">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --teal: #1D9E75; --teal-dark: #0F6E56; --teal-deep: #0A2A35;
+    --teal-light: #E1F5EE; --teal-border: #9FE1CB;
+    --amber: #BA7517; --amber-light: #FAEEDA;
+    --red: #E24B4A; --red-light: #FCEBEB;
+    --green-light: #EAF3DE; --green: #639922;
+    --text: #1a2e35; --text-mid: #3a5560; --text-muted: #7A9CA8;
+    --bg: #f8fafa; --surface: #ffffff;
+    --border: rgba(0,0,0,0.1); --radius: 10px; --radius-lg: 16px;
+  }
+  body { font-family: 'Noto Sans JP', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  .container { max-width: 680px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
+
+  /* スクリーン */
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  /* カード */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; }
+
+  /* ヘッダー */
+  .site-header { background: var(--teal-deep); padding: 14px 1rem; margin-bottom: 0; }
+  .site-header-inner { max-width: 680px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+  .site-logo { color: #fff; font-size: 15px; font-weight: 700; letter-spacing: .5px; }
+  .site-logo span { color: var(--teal-border); }
+
+  /* ボタン */
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 22px; border-radius: var(--radius); font-size: 14px; font-weight: 500; cursor: pointer; border: 1px solid transparent; transition: all .15s; font-family: inherit; text-decoration: none; }
+  .btn-primary { background: var(--teal); color: #fff; border-color: var(--teal); }
+  .btn-primary:hover { background: var(--teal-dark); }
+  .btn-secondary { background: var(--surface); color: var(--text); border-color: var(--border); }
+  .btn-secondary:hover { background: var(--bg); }
+  .btn-dark { background: var(--teal-deep); color: #fff; border-color: var(--teal-deep); }
+  .btn-dark:hover { background: var(--teal); border-color: var(--teal); }
+  .btn-lg { padding: 13px 32px; font-size: 15px; }
+  .btn:disabled { opacity: .4; cursor: default; pointer-events: none; }
+
+  /* フォーム */
+  .field { margin-bottom: 1rem; }
+  .field label { display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 5px; }
+  .field input, .field select {
+    width: 100%; padding: 10px 13px; border: 1px solid var(--border); border-radius: var(--radius);
+    font-size: 14px; font-family: inherit; background: var(--surface); color: var(--text);
+    transition: border-color .15s;
+  }
+  .field input:focus, .field select:focus { outline: none; border-color: var(--teal); }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .err-msg { font-size: 12px; color: var(--red); margin-top: 5px; }
+  .req { color: var(--red); }
+
+  /* プログレス */
+  .progress-wrap { margin-bottom: 1.5rem; }
+  .progress-bar { height: 4px; background: #dde8e8; border-radius: 2px; }
+  .progress-fill { height: 4px; background: var(--teal); border-radius: 2px; transition: width .4s ease; }
+  .progress-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: 5px; }
+
+  /* 質問 */
+  .cat-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; color: var(--teal-dark); background: var(--teal-light); padding: 3px 11px; border-radius: 20px; margin-bottom: .875rem; }
+  .q-text { font-size: 16px; font-weight: 500; line-height: 1.65; margin-bottom: 1.25rem; color: var(--text); }
+  .q-hint { font-size: 12px; color: var(--text-muted); margin-top: -.75rem; margin-bottom: 1.25rem; line-height: 1.6; padding: 8px 12px; background: var(--bg); border-radius: 8px; border-left: 3px solid var(--teal-border); }
+  .choices { display: flex; flex-direction: column; gap: 9px; margin-bottom: 1.5rem; }
+  .choice-btn {
+    text-align: left; padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--surface); color: var(--text); font-size: 14px; cursor: pointer;
+    transition: all .15s; display: flex; align-items: center; gap: 11px; font-family: inherit; line-height: 1.5;
+  }
+  .choice-btn:hover { border-color: var(--teal); background: var(--teal-light); }
+  .choice-btn.selected { border-color: var(--teal); background: var(--teal-light); border-width: 1.5px; }
+  .choice-dot { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #ccc; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+  .choice-btn.selected .choice-dot { background: var(--teal); border-color: var(--teal); }
+  .choice-btn.selected .choice-dot::after { content: ''; display: block; width: 7px; height: 7px; border-radius: 50%; background: #fff; }
+  .nav-row { display: flex; justify-content: space-between; align-items: center; }
+
+  /* 結果 */
+  .score-display { text-align: center; margin-bottom: 1.5rem; }
+  .score-num { font-size: 56px; font-weight: 700; line-height: 1; }
+  .score-unit { font-size: 22px; color: var(--text-muted); font-weight: 400; }
+  .risk-pill { display: inline-block; padding: 6px 20px; border-radius: 20px; font-size: 14px; font-weight: 700; margin-top: 10px; }
+  .chart-wrap { position: relative; width: 100%; height: 280px; margin-bottom: 1.5rem; }
+  .fb-list { margin-bottom: 1.5rem; }
+  .fb-item { display: flex; gap: 9px; padding: 11px 13px; border-radius: 8px; margin-bottom: 7px; font-size: 13px; line-height: 1.55; }
+  .fb-item.red { background: var(--red-light); color: #501313; border-left: 3px solid var(--red); border-radius: 0 8px 8px 0; }
+  .fb-item.yellow { background: var(--amber-light); color: #412402; border-left: 3px solid var(--amber); border-radius: 0 8px 8px 0; }
+  .fb-item.green { background: var(--green-light); color: #173404; border-left: 3px solid var(--green); border-radius: 0 8px 8px 0; }
+  .saved-note { font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 8px; }
+
+  /* CTA */
+  .cta-box { background: var(--teal-light); border: 1px solid var(--teal-border); border-radius: var(--radius-lg); padding: 1.5rem; text-align: center; margin-bottom: 1.5rem; }
+  .cta-box h3 { font-size: 16px; font-weight: 700; color: var(--teal-deep); margin-bottom: 6px; }
+  .cta-box p { font-size: 13px; color: var(--teal-dark); line-height: 1.65; margin-bottom: 1.25rem; }
+
+  /* モードタブ */
+  .mode-tabs { display: flex; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 1.5rem; }
+  .mode-tab { flex: 1; padding: 11px 0; font-size: 13px; font-weight: 500; cursor: pointer; border: none; background: var(--surface); color: var(--text-muted); transition: all .15s; font-family: inherit; }
+  .mode-tab.active { background: var(--teal); color: #fff; }
+  .mode-tab:first-child { border-right: 1px solid var(--border); }
+
+  /* ユーザーバナー */
+  .user-banner { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 9px 14px; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between; }
+  .user-banner-name { font-size: 13px; font-weight: 500; color: var(--text); display: flex; align-items: center; gap: 6px; }
+  .user-dot { width: 28px; height: 28px; border-radius: 50%; background: var(--teal-light); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--teal-dark); flex-shrink: 0; }
+
+  /* 監査 */
+  .audit-cat { margin-bottom: 10px; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .audit-cat-hd { display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; background: var(--bg); cursor: pointer; }
+  .audit-cat-hd-left { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; color: var(--text); }
+  .audit-cat-body { display: none; }
+  .audit-cat-body.open { display: block; }
+  .audit-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--border); }
+  .audit-item input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--teal); flex-shrink: 0; margin-top: 2px; }
+  .audit-item-main { flex: 1; }
+  .audit-item-title { font-size: 13px; color: var(--text); line-height: 1.55; cursor: pointer; }
+  .audit-tags { display: flex; gap: 5px; margin-top: 4px; flex-wrap: wrap; }
+  .tag { font-size: 10px; padding: 2px 7px; border-radius: 20px; font-weight: 500; }
+  .tag-hi { background: var(--red-light); color: #A32D2D; }
+  .tag-mid { background: var(--amber-light); color: #854F0B; }
+  .tag-lo { background: #F1EFE8; color: #5F5E5A; }
+  .tag-type { background: #E6F1FB; color: #185FA5; }
+  .cat-badge { font-size: 11px; padding: 2px 9px; border-radius: 20px; font-weight: 500; background: var(--surface); color: var(--text-muted); border: 1px solid var(--border); }
+  .chevron { font-size: 12px; color: var(--text-muted); transition: transform .2s; }
+  .audit-cat-hd.open .chevron { transform: rotate(180deg); }
+
+  /* 管理画面 */
+  .admin-header { background: var(--teal-deep); color: #fff; padding: 14px 16px; border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; align-items: center; justify-content: space-between; margin: -1.5rem -1.5rem 1.5rem; }
+  .admin-header h2 { font-size: 15px; font-weight: 700; }
+  .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 1.5rem; }
+  .stat-card { background: var(--bg); border-radius: var(--radius); padding: .875rem; text-align: center; }
+  .stat-num { font-size: 28px; font-weight: 700; }
+  .stat-lbl { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .table-wrap { overflow-x: auto; }
+  table.results-tbl { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 640px; }
+  table.results-tbl th { background: var(--bg); padding: 7px 10px; text-align: left; font-weight: 500; color: var(--text-muted); font-size: 11px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.results-tbl td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  table.results-tbl tr:last-child td { border-bottom: none; }
+  table.results-tbl tr:hover td { background: var(--bg); }
+  .pill { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 20px; font-weight: 500; white-space: nowrap; }
+
+  /* ローディング */
+  .loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 2rem; color: var(--text-muted); font-size: 14px; }
+  .spinner { width: 20px; height: 20px; border: 2px solid var(--teal-border); border-top-color: var(--teal); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ユーティリティ */
+  .text-center { text-align: center; }
+  .mt-1 { margin-top: .75rem; }
+  .mt-2 { margin-top: 1.25rem; }
+  .mt-3 { margin-top: 1.75rem; }
+  .mb-1 { margin-bottom: .75rem; }
+  .mb-2 { margin-bottom: 1.25rem; }
+  .flex-row { display: flex; gap: 8px; align-items: center; }
+  .flex-center { justify-content: center; }
+  .flex-wrap { flex-wrap: wrap; }
+
+  @media (max-width: 480px) {
+    .field-row { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: 1fr 1fr; }
+    .btn-lg { padding: 12px 24px; font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="site-header-inner">
+    <div class="site-logo">nakty <span>IT診断</span></div>
+    <button class="btn btn-secondary" style="font-size:12px;padding:5px 12px" onclick="showAdminLogin()">
+      🔒 管理画面
+    </button>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- ========== 企業情報入力 ========== -->
+  <div id="sc-entry" class="screen active">
+    <div class="text-center" style="padding: 1.5rem 0 1.25rem">
+      <div style="width:56px;height:56px;background:var(--teal-light);border-radius:16px;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;font-size:28px">💻</div>
+      <h1 style="font-size:22px;font-weight:700;margin-bottom:.5rem">会社のIT、大丈夫ですか？</h1>
+      <p style="font-size:14px;color:var(--text-muted);line-height:1.7">IT担当がいなくても大丈夫。<br>5〜7分の診断で、リスクと改善ポイントがわかります。</p>
+    </div>
+    <div class="card">
+      <p style="font-size:14px;font-weight:700;margin-bottom:1rem;color:var(--text)">まず簡単に教えてください</p>
+      <div class="field">
+        <label>お名前 <span class="req">*</span></label>
+        <input type="text" id="f-name" placeholder="例：田中 太郎" autocomplete="name">
+      </div>
+      <div class="field">
+        <label>会社名 <span class="req">*</span></label>
+        <input type="text" id="f-company" placeholder="例：株式会社○○" autocomplete="organization">
+      </div>
+      <div class="field">
+        <label>メールアドレス <span class="req">*</span></label>
+        <input type="email" id="f-email" placeholder="例：tanaka@example.com" autocomplete="email">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>従業員数</label>
+          <select id="f-size">
+            <option value="">選択してください</option>
+            <option value="1-10">1〜10名</option>
+            <option value="11-30">11〜30名</option>
+            <option value="31-100">31〜100名</option>
+            <option value="101+">101名以上</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>業種</label>
+          <select id="f-industry">
+            <option value="">選択してください</option>
+            <option value="製造">製造</option>
+            <option value="IT・通信">IT・通信</option>
+            <option value="小売・流通">小売・流通</option>
+            <option value="医療・福祉">医療・福祉</option>
+            <option value="建設">建設</option>
+            <option value="サービス">サービス</option>
+            <option value="その他">その他</option>
+          </select>
+        </div>
+      </div>
+      <p id="entry-err" class="err-msg" style="display:none;margin-bottom:.75rem"></p>
+      <button class="btn btn-primary btn-lg" style="width:100%;justify-content:center" onclick="entryNext()">
+        診断をはじめる →
+      </button>
+    </div>
+  </div>
+
+  <!-- ========== 診断モード選択 ========== -->
+  <div id="sc-mode" class="screen">
+    <div class="user-banner" id="user-banner">
+      <div class="user-banner-name">
+        <div class="user-dot" id="user-initial"></div>
+        <span id="banner-name"></span>
+      </div>
+      <button class="btn btn-secondary" style="font-size:12px;padding:5px 12px" onclick="goEntry()">変更</button>
+    </div>
+    <div class="mode-tabs">
+      <button class="mode-tab active" id="tab-s" onclick="switchMode('simple')">⚡ 簡易診断（5分）</button>
+      <button class="mode-tab" id="tab-a" onclick="switchMode('audit')">📋 詳細監査チェック</button>
+    </div>
+    <!-- 簡易診断 -->
+    <div id="mode-simple">
+      <div id="ss-start" class="text-center" style="padding:1rem 0 1.5rem">
+        <p style="font-size:14px;color:var(--text-muted);line-height:1.7;margin-bottom:1.25rem">
+          25問に答えるだけで、ITのリスクと改善ポイントが<br>カテゴリ別にわかります。
+        </p>
+        <button class="btn btn-primary btn-lg" onclick="sStart()">診断をはじめる →</button>
+      </div>
+      <div id="ss-quiz" style="display:none">
+        <div class="progress-wrap">
+          <div class="progress-bar"><div class="progress-fill" id="s-prog"></div></div>
+          <div class="progress-label"><span id="s-cat-label"></span><span id="s-num"></span></div>
+        </div>
+        <div class="cat-pill" id="s-cat"></div>
+        <p class="q-text" id="s-q"></p>
+        <p class="q-hint" id="s-hint" style="display:none"></p>
+        <div class="choices" id="s-choices"></div>
+        <div class="nav-row">
+          <button class="btn btn-secondary" id="s-back" onclick="sBack()">← 戻る</button>
+          <button class="btn btn-primary" id="s-next" onclick="sNext()" disabled>次へ →</button>
+        </div>
+      </div>
+      <div id="ss-result" style="display:none"></div>
+    </div>
+    <!-- 詳細監査 -->
+    <div id="mode-audit" style="display:none">
+      <div id="as-start" class="text-center" style="padding:1rem 0 1.5rem">
+        <p style="font-size:14px;color:var(--text-muted);line-height:1.7;margin-bottom:1.25rem">
+          実際の情シス業務ベースの詳細チェックリスト（46項目）です。
+        </p>
+        <button class="btn btn-primary btn-lg" onclick="aStart()">チェックリストを開く →</button>
+      </div>
+      <div id="as-body" style="display:none">
+        <div id="audit-list"></div>
+        <div class="flex-row flex-center flex-wrap mt-3">
+          <button class="btn btn-primary" onclick="aShowResult()">📊 結果を見る・保存する</button>
+          <button class="btn btn-secondary" onclick="aReset()">↺ リセット</button>
+        </div>
+      </div>
+      <div id="as-result" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- ========== 管理者ログイン ========== -->
+  <div id="sc-admin-login" class="screen">
+    <div class="card" style="max-width:360px;margin:2rem auto">
+      <p style="font-size:16px;font-weight:700;margin-bottom:1.25rem">🔒 管理画面ログイン</p>
+      <div class="field">
+        <label>パスワード</label>
+        <input type="password" id="admin-pw" placeholder="管理者パスワード" onkeydown="if(event.key==='Enter')adminLogin()">
+      </div>
+      <p id="admin-err" class="err-msg" style="display:none">パスワードが違います</p>
+      <div class="flex-row mt-2">
+        <button class="btn btn-secondary" onclick="showScreen('sc-entry')">← 戻る</button>
+        <button class="btn btn-primary" onclick="adminLogin()">ログイン</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 管理画面 ========== -->
+  <div id="sc-admin" class="screen">
+    <div class="card">
+      <div class="admin-header">
+        <h2>📊 診断履歴管理</h2>
+        <div class="flex-row">
+          <button class="btn btn-secondary" style="font-size:12px;padding:5px 12px" onclick="exportCSV()">CSV出力</button>
+          <button class="btn btn-secondary" style="font-size:12px;padding:5px 12px" onclick="adminLogout()">ログアウト</button>
+        </div>
+      </div>
+      <div id="admin-loading" class="loading"><div class="spinner"></div>読み込み中...</div>
+      <div id="admin-content" style="display:none">
+        <div class="stats-grid" id="admin-stats"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
+          <p style="font-size:13px;color:var(--text-muted)" id="admin-count"></p>
+          <div class="flex-row">
+            <select id="filter-type" style="font-size:12px;padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;background:var(--surface)" onchange="renderTable()">
+              <option value="">すべて</option>
+              <option value="簡易診断">簡易診断のみ</option>
+              <option value="詳細監査">詳細監査のみ</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="results-tbl">
+            <thead><tr>
+              <th>日時</th><th>名前</th><th>会社名</th><th>メール</th>
+              <th>従業員</th><th>業種</th><th>種別</th><th>スコア</th><th>判定</th>
+            </tr></thead>
+            <tbody id="admin-tbody"></tbody>
+          </table>
+        </div>
+        <div style="margin-top:1rem;text-align:right">
+          <button class="btn" style="font-size:11px;padding:5px 10px;border:1px solid var(--red);color:var(--red);background:var(--red-light)" onclick="clearAllData()">🗑 全データ削除</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script src="app.js"></script>
+</body>
+</html>
