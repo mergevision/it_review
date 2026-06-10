@@ -261,7 +261,7 @@ function sShowResult() {
 <div class="cta-box">
   <h3>この結果、専門家に見てもらいませんか？</h3>
   <p>IT担当がいなくても大丈夫。まず話を聞かせてください。</p>
-  <a href="mailto:contact@nakty.jp?subject=IT診断の結果について相談したい&body=診断結果：総合スコア${total}点（${risk}）%0D%0A会社名：${currentUser?.company}%0D%0Aお名前：${currentUser?.name}" class="btn btn-primary">メールで相談する</a>
+  <a href="mailto:s.nakata@mergevision.co.jp?subject=IT診断の結果について相談したい&body=診断結果：総合スコア${total}点（${risk}）%0D%0A会社名：${currentUser?.company}%0D%0Aお名前：${currentUser?.name}" class="btn btn-primary">メールで相談する</a>
 </div>`;
 
   document.getElementById('ss-quiz').style.display = 'none';
@@ -391,7 +391,7 @@ ${notDone.length > 0 ? `<div style="margin-bottom:1.5rem">
 <div class="cta-box">
   <h3>対応の優先順位を整理しませんか？</h3>
   <p>未実施項目が多い場合でも、優先度の高いものから整理するだけで大きく改善できます。</p>
-  <a href="mailto:contact@nakty.jp?subject=IT監査チェックリストの結果について&body=実施率：${pct}%（${status}）%0D%0A会社名：${currentUser?.company}%0D%0Aお名前：${currentUser?.name}" class="btn btn-primary">メールで相談する</a>
+  <a href="mailto:s.nakata@mergevision.co.jp?subject=IT監査チェックリストの結果について&body=実施率：${pct}%（${status}）%0D%0A会社名：${currentUser?.company}%0D%0Aお名前：${currentUser?.name}" class="btn btn-primary">メールで相談する</a>
 </div>`;
 
   document.getElementById('as-body').style.display = 'none';
