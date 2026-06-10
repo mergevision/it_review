@@ -451,24 +451,120 @@ async function saveResult(type, score, risk, details) {
 // PDF出力（日本語SVG画像方式 + レーダーチャート埋め込み）
 // ============================================================
 
-// SVGテキストをPNG dataURLに変換するヘルパー
+// SVGテキストをPNG dataURLに変換（高解像度版）
 function svgTextToPng(lines, opts) {
-  const { fontSize=13, bold=false, color='#1a2e35', w=500, lineH=20 } = opts||{};
-  const h = lines.length * lineH + 10;
+  const { fontSize=13, bold=false, color='#1a2e35', w=600, lineH=24 } = opts||{};
+  const scale = 3; // 3倍解像度で文字を鮮明に
+  const sw = w * scale, sh = (lines.length * lineH + 12) * scale;
+  const fs = fontSize * scale, lh = lineH * scale;
   const escaped = lines.map(l => l.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));
-  const tspans = escaped.map((l,i) => `<tspan x="0" dy="${i===0?0:lineH}">${l}</tspan>`).join('');
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
-    <text y="${fontSize}" font-size="${fontSize}" font-family="'Noto Sans JP',sans-serif"
+  const tspans = escaped.map((l,i) => `<tspan x="0" dy="${i===0?0:lh}">${l}</tspan>`).join('');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${sw}" height="${sh}">
+    <text y="${fs}" font-size="${fs}" font-family="'Noto Sans JP',sans-serif"
       font-weight="${bold?'700':'400'}" fill="${color}">${tspans}</text></svg>`;
-  const img = new Image();
   const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
   return new Promise(res => {
+    const img = new Image();
     img.onload = () => {
-      const cv = document.createElement('canvas'); cv.width=w; cv.height=h;
+      const cv = document.createElement('canvas'); cv.width=sw; cv.height=sh;
       cv.getContext('2d').drawImage(img,0,0);
-      res({ url: cv.toDataURL('image/png'), w, h });
+      res({ url: cv.toDataURL('image/png'), sw, sh });
     };
     img.src = url;
+  });
+}
+
+// mm単位でSVG画像をPDFに追加（解像度スケール考慮）
+function addSvgImg(doc, imgData, xMm, yMm, wMm) {
+  const { sw, sh } = imgData;
+  const hMm = wMm * (sh / sw);
+  doc.addImage(imgData.url, 'PNG', xMm, yMm, wMm, hMm);
+  return hMm;
+}
+
+// PDF専用レーダーチャート（正多角形・正方形canvas）
+function drawRadarForPDF(catDefs, catData) {
+  const SIZE = 600; // 正方形canvas
+  const cv = document.createElement('canvas');
+  cv.width = SIZE; cv.height = SIZE;
+  const ctx = cv.getContext('2d');
+  const cx = SIZE/2, cy = SIZE/2;
+  const maxR = SIZE*0.32; // 最大半径
+  const labelR = SIZE*0.44; // ラベル距離
+  const n = catDefs.length;
+  const levels = [25,50,75,100];
+
+  // 角度：上から時計回り（-90度スタート）
+  const angle = (i) => (Math.PI*2/n)*i - Math.PI/2;
+  const pt = (r, i) => [cx + r*Math.cos(angle(i)), cy + r*Math.sin(angle(i))];
+
+  // 背景白
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0,0,SIZE,SIZE);
+
+  // グリッド線（同心多角形）
+  levels.forEach(lv => {
+    const r = maxR * lv/100;
+    ctx.beginPath();
+    for(let i=0;i<n;i++){
+      const [x,y]=pt(r,i);
+      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle='rgba(0,0,0,0.1)'; ctx.lineWidth=1.5;
+    ctx.stroke();
+    // レベル数字
+    if(lv<100){
+      ctx.fillStyle='#aac0c8'; ctx.font=`${SIZE*0.028}px sans-serif`;
+      ctx.textAlign='center';
+      ctx.fillText(String(lv), cx, cy - r + SIZE*0.03);
+    }
+  });
+
+  // 軸線
+  for(let i=0;i<n;i++){
+    const [x,y]=pt(maxR,i);
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(x,y);
+    ctx.strokeStyle='rgba(0,0,0,0.1)'; ctx.lineWidth=1.5; ctx.stroke();
+  }
+
+  // データ塗り
+  const vals = catDefs.map(c=>catData[c.id]??0);
+  ctx.beginPath();
+  vals.forEach((v,i)=>{
+    const r=maxR*v/100;
+    const [x,y]=pt(r,i);
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  });
+  ctx.closePath();
+  ctx.fillStyle='rgba(29,158,117,0.18)'; ctx.fill();
+  ctx.strokeStyle='#1D9E75'; ctx.lineWidth=3; ctx.stroke();
+
+  // ドット
+  vals.forEach((v,i)=>{
+    const [x,y]=pt(maxR*v/100,i);
+    ctx.beginPath(); ctx.arc(x,y,7,0,Math.PI*2);
+    ctx.fillStyle='#1D9E75'; ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.stroke();
+  });
+
+  // ラベル（SVGで日本語描画→canvas合成）
+  return new Promise(res => {
+    let done = 0;
+    catDefs.forEach((cat,i)=>{
+      const [lx,ly] = pt(labelR,i);
+      const fs = SIZE*0.052;
+      const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="50">
+        <text x="100" y="${fs}" font-size="${fs}" font-family="'Noto Sans JP',sans-serif"
+          font-weight="500" fill="#1a2e35" text-anchor="middle">${cat.name}</text></svg>`;
+      const img = new Image();
+      img.onload = () => {
+        ctx.drawImage(img, lx-100, ly-fs*0.8, 200, 50);
+        done++;
+        if(done===n) res(cv.toDataURL('image/png'));
+      };
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
+    });
   });
 }
 
@@ -478,108 +574,113 @@ async function buildPDF(type, scoreVal, riskLabel, catData, catDefs, radarCanvas
   const W=210, pad=20;
 
   // ヘッダー背景
-  doc.setFillColor(10,42,53); doc.rect(0,0,W,38,'F');
+  doc.setFillColor(10,42,53); doc.rect(0,0,W,40,'F');
 
-  // タイトル（SVG画像）
-  const titleImg = await svgTextToPng(['IT簡易診断レポート'], {fontSize:20,bold:true,color:'#ffffff',w:400,lineH:28});
-  doc.addImage(titleImg.url,'PNG', pad, 7, 80, 14);
+  // タイトル
+  const titleImg = await svgTextToPng(['IT簡易診断レポート'], {fontSize:22,bold:true,color:'#ffffff',w:600,lineH:30});
+  addSvgImg(doc, titleImg, pad, 8, 90);
 
-  // サブ（会社名・日付）
+  // 会社名・日付
   const d = new Date();
   const dateStr = d.getFullYear()+'/'+(d.getMonth()+1)+'/'+d.getDate();
-  const subLines = currentUser ? [currentUser.name+' / '+currentUser.company, dateStr] : [dateStr];
-  const subImg = await svgTextToPng(subLines, {fontSize:10,color:'#9FE1CB',w:500,lineH:16});
-  doc.addImage(subImg.url,'PNG', pad, 22, 100, 12);
+  const subText = currentUser ? currentUser.name+' / '+currentUser.company+'　'+dateStr : dateStr;
+  const subImg = await svgTextToPng([subText], {fontSize:10,color:'#9FE1CB',w:700,lineH:18});
+  addSvgImg(doc, subImg, pad, 26, 110);
 
   let y = 48;
   const [sr,sg,sb] = scoreVal>=75?[29,158,117]:scoreVal>=50?[186,117,22]:[226,75,74];
-  const riskJa = riskLabel;
 
-  // スコアボックス
-  const scoreHeadImg = await svgTextToPng(['総合スコア'], {fontSize:11,bold:true,color:'#1a2e35',w:200});
-  doc.addImage(scoreHeadImg.url,'PNG', pad, y, 30, 5); y+=7;
-  doc.setFillColor(240,250,248); doc.roundedRect(pad,y,W-pad*2,28,3,3,'F');
-  doc.setFontSize(36); doc.setFont('helvetica','bold'); doc.setTextColor(sr,sg,sb);
-  doc.text(String(scoreVal), W/2-14, y+20);
-  doc.setFontSize(16); doc.setTextColor(100,140,150); doc.text('/100', W/2+8, y+20);
-  // リスクバッジ
-  doc.setFillColor(sr,sg,sb); doc.roundedRect(W/2+30,y+7,34,12,3,3,'F');
-  const riskImg = await svgTextToPng([riskJa], {fontSize:10,bold:true,color:'#ffffff',w:160,lineH:16});
-  doc.addImage(riskImg.url,'PNG', W/2+31, y+8, 32, 8);
-  y += 36;
+  // 総合スコアセクション
+  const scoreHeadImg = await svgTextToPng(['総合スコア'], {fontSize:12,bold:true,color:'#1a2e35',w:300,lineH:20});
+  addSvgImg(doc, scoreHeadImg, pad, y, 28); y+=7;
+  doc.setFillColor(240,250,248); doc.roundedRect(pad,y,W-pad*2,30,3,3,'F');
+  // スコア数字（helveticaで描画→文字化けなし）
+  doc.setFontSize(40); doc.setFont('helvetica','bold'); doc.setTextColor(sr,sg,sb);
+  doc.text(String(scoreVal), W/2-18, y+22);
+  doc.setFontSize(18); doc.setFont('helvetica','normal'); doc.setTextColor(100,140,150);
+  doc.text('/100', W/2+5, y+22);
+  // リスクバッジ（SVG）
+  doc.setFillColor(sr,sg,sb); doc.roundedRect(W/2+34,y+8,32,12,3,3,'F');
+  const riskImg = await svgTextToPng([riskLabel], {fontSize:11,bold:true,color:'#ffffff',w:240,lineH:20});
+  addSvgImg(doc, riskImg, W/2+35, y+9, 30);
+  y += 38;
 
-  // レーダーチャート埋め込み
-  const radarCanvas = document.getElementById(radarCanvasId);
-  if (radarCanvas) {
-    const chartImg = radarCanvas.toDataURL('image/png');
-    const chartHeadImg = await svgTextToPng(['カテゴリ別レーダーチャート'], {fontSize:11,bold:true,color:'#1a2e35',w:300});
-    doc.addImage(chartHeadImg.url,'PNG', pad, y, 60, 5); y+=7;
-    const cSize = 80;
-    doc.addImage(chartImg,'PNG', W/2-cSize/2, y, cSize, cSize);
-    y += cSize + 4;
+  // レーダーチャート（PDF専用・正多角形で描画）
+  {
+    const chartHeadImg = await svgTextToPng(['カテゴリ別レーダーチャート'], {fontSize:12,bold:true,color:'#1a2e35',w:400,lineH:20});
+    addSvgImg(doc, chartHeadImg, pad, y, 55); y+=8;
+    const chartDataUrl = await drawRadarForPDF(catDefs, catData);
+    const chartSize = 110;
+    doc.addImage(chartDataUrl, 'PNG', W/2-chartSize/2, y, chartSize, chartSize);
+    y += chartSize + 5;
   }
 
   // カテゴリ別スコアバー
-  const catHeadImg = await svgTextToPng(['カテゴリ別スコア'], {fontSize:11,bold:true,color:'#1a2e35',w:300});
-  doc.addImage(catHeadImg.url,'PNG', pad, y, 50, 5); y+=7;
+  const catHeadImg = await svgTextToPng(['カテゴリ別スコア'], {fontSize:12,bold:true,color:'#1a2e35',w:300,lineH:20});
+  addSvgImg(doc, catHeadImg, pad, y, 50); y+=8;
   const cw = (W-pad*2-8)/2;
+  const unit = type==='詳細監査' ? '%' : 'pt';
   for (let i=0; i<catDefs.length; i++) {
     const cat = catDefs[i];
     const p = catData[cat.id] ?? 0;
     const [cr,cg,cb] = p>=75?[29,158,117]:p>=50?[186,117,22]:[226,75,74];
     const cx = i%2===0 ? pad : pad+cw+8;
     if (i%2===0 && i>0) y+=20;
-    doc.setFillColor(248,252,252); doc.roundedRect(cx,y,cw,17,2,2,'F');
-    doc.setDrawColor(220,235,235); doc.roundedRect(cx,y,cw,17,2,2,'S');
-    const catImg = await svgTextToPng([cat.name], {fontSize:9,color:'#506470',w:200});
-    doc.addImage(catImg.url,'PNG', cx+3, y+2, 35, 6);
-    doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(cr,cg,cb);
-    doc.text(String(p)+(type==='詳細監査'?'%':'点'), cx+cw-4, y+8, {align:'right'});
-    doc.setFillColor(220,235,235); doc.rect(cx+3,y+10,cw-6,3,'F');
-    doc.setFillColor(cr,cg,cb); doc.rect(cx+3,y+10,(cw-6)*p/100,3,'F');
+    doc.setFillColor(248,252,252); doc.roundedRect(cx,y,cw,18,2,2,'F');
+    doc.setDrawColor(220,235,235); doc.roundedRect(cx,y,cw,18,2,2,'S');
+    // カテゴリ名（SVG）
+    const catImg = await svgTextToPng([cat.name], {fontSize:9,color:'#506470',w:280,lineH:18});
+    addSvgImg(doc, catImg, cx+3, y+2, 38);
+    // スコア数字（helveticaで描画→文字化けなし）
+    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(cr,cg,cb);
+    doc.text(String(p)+unit, cx+cw-4, y+9, {align:'right'});
+    // バー
+    doc.setFillColor(220,235,235); doc.rect(cx+3,y+11,cw-6,3,'F');
+    doc.setFillColor(cr,cg,cb); doc.rect(cx+3,y+11,(cw-6)*p/100,3,'F');
   }
-  y += 26;
+  if (catDefs.length%2!==0) y+=20; else y+=20;
 
   // フィードバック
-  const fbHeadImg = await svgTextToPng(['フィードバック'], {fontSize:11,bold:true,color:'#1a2e35',w:300});
-  doc.addImage(fbHeadImg.url,'PNG', pad, y, 40, 5); y+=7;
+  if (y > 240) { doc.addPage(); y=15; }
+  const fbHeadImg = await svgTextToPng(['フィードバック'], {fontSize:12,bold:true,color:'#1a2e35',w:300,lineH:20});
+  addSvgImg(doc, fbHeadImg, pad, y, 40); y+=8;
   const fbMap = {
-    asset:  {ok:'資産管理は概ね良好です。',     mid:'資産管理に改善の余地があります。',   ng:'資産管理のリスクが高い状態です。'},
-    sec:    {ok:'セキュリティは概ね良好です。', mid:'セキュリティに改善の余地があります。',ng:'セキュリティリスクが高い状態です。'},
-    backup: {ok:'バックアップは概ね良好です。', mid:'バックアップに改善の余地があります。',ng:'バックアップが不十分です。'},
-    lic:    {ok:'ライセンス管理は良好です。',   mid:'ライセンス管理に改善が必要です。',    ng:'ライセンス管理が不十分です。'},
-    dx:     {ok:'DX化は概ね進んでいます。',     mid:'紙業務が一部残っています。',          ng:'紙業務が多く残っています。'},
-    helpdesk:{ok:'ヘルプデスクは良好です。',    mid:'ヘルプデスクに改善が必要です。',      ng:'ヘルプデスク体制が不十分です。'},
-    software:{ok:'ソフト管理は良好です。',      mid:'ソフト管理に改善が必要です。',        ng:'ソフト管理が不十分です。'},
-    server: {ok:'サーバ管理は良好です。',       mid:'サーバ管理に改善が必要です。',        ng:'サーバ管理が不十分です。'},
-    security:{ok:'セキュリティ管理は良好です。',mid:'セキュリティ管理に改善が必要です。', ng:'セキュリティ管理が不十分です。'},
-    access: {ok:'アクセス管理は良好です。',     mid:'アクセス管理に改善が必要です。',      ng:'アクセス管理が不十分です。'},
-    info_sec:{ok:'情報教育は良好です。',        mid:'情報教育に改善が必要です。',          ng:'情報教育が不十分です。'},
-    audit:  {ok:'監査対応は良好です。',         mid:'監査対応に改善が必要です。',          ng:'監査対応が不十分です。'},
+    asset:   {ok:'資産管理は概ね良好です。',       mid:'資産管理に改善の余地があります。',   ng:'資産管理のリスクが高い状態です。'},
+    sec:     {ok:'セキュリティは概ね良好です。',   mid:'セキュリティに改善の余地があります。',ng:'セキュリティリスクが高い状態です。'},
+    backup:  {ok:'バックアップは概ね良好です。',   mid:'バックアップに改善の余地があります。',ng:'バックアップが不十分です。'},
+    lic:     {ok:'ライセンス管理は良好です。',     mid:'ライセンス管理に改善が必要です。',    ng:'ライセンス管理が不十分です。'},
+    dx:      {ok:'DX化は概ね進んでいます。',       mid:'紙業務が一部残っています。',          ng:'紙業務が多く残っています。'},
+    helpdesk:{ok:'ヘルプデスクは良好です。',       mid:'ヘルプデスクに改善が必要です。',      ng:'ヘルプデスク体制が不十分です。'},
+    software:{ok:'ソフト管理は良好です。',         mid:'ソフト管理に改善が必要です。',        ng:'ソフト管理が不十分です。'},
+    server:  {ok:'サーバ管理は良好です。',         mid:'サーバ管理に改善が必要です。',        ng:'サーバ管理が不十分です。'},
+    security:{ok:'セキュリティ管理は良好です。',   mid:'セキュリティ管理に改善が必要です。',  ng:'セキュリティ管理が不十分です。'},
+    access:  {ok:'アクセス管理は良好です。',       mid:'アクセス管理に改善が必要です。',      ng:'アクセス管理が不十分です。'},
+    info_sec:{ok:'情報セキュリティ教育は良好です。',mid:'情報セキュリティ教育に改善が必要です。',ng:'情報セキュリティ教育が不十分です。'},
+    audit:   {ok:'監査対応は良好です。',           mid:'監査対応に改善が必要です。',          ng:'監査対応が不十分です。'},
   };
   for (const cat of catDefs) {
     const p = catData[cat.id] ?? 0;
     const [fr,fg,fb2] = p>=75?[234,243,222]:p>=50?[250,238,218]:[252,235,235];
     const [lr,lg,lb] = p>=75?[99,153,34]:p>=50?[186,117,22]:[226,75,74];
-    const fb = fbMap[cat.id] || {ok:'良好です。',mid:'改善の余地があります。',ng:'要対応です。'};
+    const fb = fbMap[cat.id]||{ok:'良好です。',mid:'改善の余地があります。',ng:'要対応です。'};
     const msg = p>=75?fb.ok:p>=50?fb.mid:fb.ng;
-    if (y > 265) { doc.addPage(); y=20; }
-    doc.setFillColor(fr,fg,fb2); doc.roundedRect(pad,y,W-pad*2,15,2,2,'F');
-    doc.setFillColor(lr,lg,lb); doc.rect(pad,y,2,15,'F');
-    const fbImg = await svgTextToPng([cat.name+'　'+msg], {fontSize:8.5,color:'#28404a',w:520,lineH:14});
-    doc.addImage(fbImg.url,'PNG', pad+4, y+2, W-pad*2-8, 10);
-    y+=17;
+    if (y > 268) { doc.addPage(); y=15; }
+    doc.setFillColor(fr,fg,fb2); doc.roundedRect(pad,y,W-pad*2,14,2,2,'F');
+    doc.setFillColor(lr,lg,lb); doc.rect(pad,y,2,14,'F');
+    const fbImg = await svgTextToPng([cat.name+'　'+msg], {fontSize:9,color:'#28404a',w:640,lineH:18});
+    addSvgImg(doc, fbImg, pad+4, y+2, W-pad*2-8);
+    y+=16;
   }
 
   // CTA
-  y = Math.max(y+4, 262);
-  if (y > 270) { doc.addPage(); y=20; }
-  doc.setFillColor(10,42,53); doc.roundedRect(pad,y,W-pad*2,24,3,3,'F');
+  y = Math.max(y+4, 265);
+  if (y > 272) { doc.addPage(); y=15; }
+  doc.setFillColor(10,42,53); doc.roundedRect(pad,y,W-pad*2,22,3,3,'F');
   const ctaImg = await svgTextToPng(
     ['この結果を専門家に見てもらいませんか？','IT担当がいなくても大丈夫。まず話を聞かせてください。'],
-    {fontSize:9.5,color:'#9FE1CB',w:520,lineH:16}
+    {fontSize:10,color:'#9FE1CB',w:640,lineH:20}
   );
-  doc.addImage(ctaImg.url,'PNG', pad+4, y+3, W-pad*2-8, 18);
+  addSvgImg(doc, ctaImg, pad+4, y+3, W-pad*2-8);
 
   doc.save('IT診断レポート.pdf');
 }
