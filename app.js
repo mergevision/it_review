@@ -629,7 +629,12 @@ async function buildPDF(type, scoreVal, riskLabel, catData, catDefs) {
     ctx.fillStyle='#ffffff'; roundRect(ctx,cx2,y,colW,120,12,'fill');
     ctx.strokeStyle='#dde8e8'; ctx.lineWidth=2; roundRect(ctx,cx2,y,colW,120,12,'stroke');
     await drawSvgText(ctx,cat.name,cx2+20,y+58,{fontSize:34,color:'#506470',maxWidth:colW-200});
-    await drawSvgText(ctx,String(p)+unit,cx2+colW-20,y+62,{fontSize:40,bold:true,color:`rgb(${cr},${cg},${cb})`,align:'right',maxWidth:200});
+    // スコア数字をcanvas直接描画（SVGだと右寄せがはみ出すため）
+    ctx.font = `bold 40px Arial,sans-serif`;
+    ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
+    ctx.textAlign = 'right';
+    ctx.fillText(String(p)+unit, cx2+colW-30, y+70);
+    ctx.textAlign = 'left';
     ctx.fillStyle='#dde8e8'; ctx.fillRect(cx2+20,y+75,colW-40,14);
     ctx.fillStyle=`rgb(${cr},${cg},${cb})`; ctx.fillRect(cx2+20,y+75,(colW-40)*p/100,14);
   }
