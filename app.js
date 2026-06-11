@@ -935,12 +935,69 @@ async function clearAllData() {
 
 function exportCSV() {
   if (!allResults.length) { alert('データがありません'); return; }
-  const headers = ['日時', '名前', '会社名', 'メール', '従業員数', '業種', '種別', 'スコア', '判定'];
+
+  // 簡易診断用カテゴリ
+  const sCatDefs = [
+    {id:'asset', name:'資産管理'},
+    {id:'sec',   name:'セキュリティ'},
+    {id:'backup',name:'バックアップ'},
+    {id:'lic',   name:'ライセンス'},
+    {id:'dx',    name:'書類・DX'},
+  ];
+  // 詳細監査用カテゴリ
+  const aCatDefs = [
+    {id:'helpdesk', name:'ヘルプデスク'},
+    {id:'asset',    name:'IT資産管理'},
+    {id:'software', name:'ソフト・ライセンス'},
+    {id:'server',   name:'サーバ・NW'},
+    {id:'security', name:'セキュリティ管理'},
+    {id:'access',   name:'アクセス管理'},
+    {id:'info_sec', name:'情報教育'},
+    {id:'audit',    name:'監査・契約'},
+  ];
+
+  const judgement = (p, type) => {
+    if (type === '詳細監査') return p >= 80 ? '管理良好' : p >= 50 ? '要改善' : '未整備が多い';
+    return p >= 75 ? '良好' : p >= 50 ? '要改善' : '高リスク';
+  };
+
+  // 全カテゴリ名をヘッダーに（簡易+詳細の全カテゴリ）
+  const sHeaders = sCatDefs.flatMap(c => [c.name+'_スコア', c.name+'_判定']);
+  const aHeaders = aCatDefs.flatMap(c => [c.name+'_スコア', c.name+'_判定']);
+
+  const headers = [
+    '日時', '名前', '会社名', 'メール', '従業員数', '業種', '種別', '総合スコア', '総合判定',
+    ...sHeaders, ...aHeaders
+  ];
+
   const rows = allResults.map(r => {
     const d = new Date(r.created_at);
-    const ds = d.getFullYear() + '/' + (d.getMonth()+1) + '/' + d.getDate() + ' ' + d.getHours() + ':' + String(d.getMinutes()).padStart(2,'0');
-    return [ds, r.name, r.company, r.email, r.employee_size || '', r.industry || '', r.type, r.score, r.risk].map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',');
+    const ds = d.getFullYear() + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + String(d.getDate()).padStart(2,'0')
+      + ' ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+    const details = r.details || {};
+    const isSimple = r.type === '簡易診断';
+
+    // 簡易診断カテゴリ列（詳細監査の場合は空欄）
+    const sCols = sCatDefs.flatMap(c => {
+      if (!isSimple) return ['', ''];
+      const p = details[c.id] ?? '';
+      return [p, p !== '' ? judgement(p, '簡易診断') : ''];
+    });
+    // 詳細監査カテゴリ列（簡易診断の場合は空欄）
+    const aCols = aCatDefs.flatMap(c => {
+      if (isSimple) return ['', ''];
+      const p = details[c.id] ?? '';
+      return [p, p !== '' ? judgement(p, '詳細監査') : ''];
+    });
+
+    return [
+      ds, r.name, r.company, r.email,
+      r.employee_size || '', r.industry || '',
+      r.type, r.score, r.risk,
+      ...sCols, ...aCols
+    ].map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',');
   });
+
   const csv = '\uFEFF' + [headers.join(','), ...rows].join('\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
