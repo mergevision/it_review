@@ -154,6 +154,8 @@ async function entryNext() {
   if (!validateField('f-name',    'お名前を入力してください')) ok = false;
   if (!validateField('f-company', '会社名を入力してください')) ok = false;
   if (!validateField('f-email',   'メールアドレスを入力してください')) ok = false;
+  if (!validateField('f-size',    '従業員数を選択してください')) ok = false;
+  if (!validateField('f-industry','業種を選択してください')) ok = false;
   if (!ok) return;
 
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
