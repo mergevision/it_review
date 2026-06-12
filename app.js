@@ -144,60 +144,41 @@ function validateField(id, errMsg) {
 }
 
 async function entryNext() {
-  const name    = document.getElementById('f-name').value.trim();
   const company = document.getElementById('f-company').value.trim();
-  const email   = document.getElementById('f-email').value.trim();
-  const errEl   = document.getElementById('entry-err');
 
-  // フィールドごとの個別エラー表示
   let ok = true;
-  if (!validateField('f-name',    'お名前を入力してください')) ok = false;
   if (!validateField('f-company', '会社名を入力してください')) ok = false;
-  if (!validateField('f-email',   'メールアドレスを入力してください')) ok = false;
   if (!validateField('f-size',    '従業員数を選択してください')) ok = false;
   if (!validateField('f-industry','業種を選択してください')) ok = false;
   if (!ok) return;
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    const el = document.getElementById('f-email');
-    el.style.borderColor = 'var(--red)';
-    const wrap = el.parentElement;
-    let e = wrap.querySelector('.field-err');
-    if (!e) { e = document.createElement('p'); e.className = 'field-err err-msg'; wrap.appendChild(e); }
-    e.textContent = 'メールアドレスの形式が正しくありません';
-    return;
-  }
+  document.getElementById('entry-err').style.display = 'none';
 
-  errEl.style.display = 'none';
   currentUser = {
-    name, company, email,
+    name: company,  // 管理画面等での表示用
+    company,
+    email: '',
     employee_size: document.getElementById('f-size').value,
     industry:      document.getElementById('f-industry').value,
   };
 
-  const initial = name.charAt(0);
-  document.getElementById('user-initial').textContent = initial;
-  document.getElementById('banner-name').textContent = name + '（' + company + '）';
+  document.getElementById('banner-name').textContent = company;
 
-  // formspreeでメール通知
+  // formspreeで通知
   const FORMSPREE_URL = 'https://formspree.io/f/mykadwdl';
-  if (FORMSPREE_URL && FORMSPREE_URL !== 'YOUR_FORMSPREE_URL') {
-    try {
-      await fetch(FORMSPREE_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify({
-          subject: '【IT診断】新規診断開始：' + company + ' / ' + name,
-          name, company, email,
-          employee_size: currentUser.employee_size || '未入力',
-          industry:      currentUser.industry || '未入力',
-          message: name + '（' + company + '）さんがIT診断を開始しました。\n\nメール：' + email +
-            '\n従業員数：' + (currentUser.employee_size || '未入力') +
-            '\n業種：' + (currentUser.industry || '未入力'),
-        })
-      });
-    } catch(e) { /* 通知失敗しても診断は続行 */ }
-  }
+  try {
+    await fetch(FORMSPREE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({
+        subject: '【IT診断】新規診断開始：' + company,
+        company,
+        employee_size: currentUser.employee_size,
+        industry:      currentUser.industry,
+        message: company + 'がIT診断を開始しました。\n従業員数：' + currentUser.employee_size + '\n業種：' + currentUser.industry,
+      })
+    });
+  } catch(e) { /* 通知失敗しても診断は続行 */ }
 
   sAnswers = {}; sCur = 0; aChecked = {};
   resetSimpleUI();
@@ -309,7 +290,7 @@ function sShowResult() {
 <div class="cta-box">
   <h3>この結果、専門家に見てもらいませんか？</h3>
   <p>IT担当がいなくても大丈夫。まず話を聞かせてください。</p>
-  <a href="mailto:s.nakata@mergevision.co.jp?subject=IT診断の結果について相談したい&body=診断結果：総合スコア${total}点（${risk}）%0D%0A会社名：${currentUser?.company}%0D%0Aお名前：${currentUser?.name}" class="btn btn-primary">メールで相談する</a>
+  <a href="mailto:s.nakata@mergevision.co.jp?subject=IT診断の結果について相談したい&body=診断結果：総合スコア${total}点（${risk}）%0D%0A会社名：${currentUser?.company}" class="btn btn-primary">メールで相談する</a>
 </div>`;
 
   document.getElementById('ss-quiz').style.display = 'none';
@@ -440,7 +421,7 @@ ${notDone.length > 0 ? `<div style="margin-bottom:1.5rem">
 <div class="cta-box">
   <h3>対応の優先順位を整理しませんか？</h3>
   <p>未実施項目が多い場合でも、優先度の高いものから整理するだけで大きく改善できます。</p>
-  <a href="mailto:s.nakata@mergevision.co.jp?subject=IT監査チェックリストの結果について&body=実施率：${pct}%（${status}）%0D%0A会社名：${currentUser?.company}%0D%0Aお名前：${currentUser?.name}" class="btn btn-primary">メールで相談する</a>
+  <a href="mailto:s.nakata@mergevision.co.jp?subject=IT監査チェックリストの結果について&body=実施率：${pct}%（${status}）%0D%0A会社名：${currentUser?.company}" class="btn btn-primary">メールで相談する</a>
 </div>`;
 
   document.getElementById('as-body').style.display = 'none';
@@ -481,9 +462,9 @@ async function saveResult(type, score, risk, details) {
   if (!currentUser) return;
   try {
     const { error } = await db.from('results').insert({
-      name: currentUser.name,
+      name: currentUser.company,
       company: currentUser.company,
-      email: currentUser.email,
+      email: '',
       employee_size: currentUser.employee_size || null,
       industry: currentUser.industry || null,
       type, score, risk,
@@ -583,7 +564,7 @@ async function buildPDF(type, scoreVal, riskLabel, catData, catDefs) {
   await drawSvgText(ctx,'IT簡易診断レポート',PAD,150,{fontSize:72,bold:true,color:'#ffffff'});
   const d=new Date();
   const dateStr=d.getFullYear()+'/'+(d.getMonth()+1)+'/'+d.getDate();
-  const subText = currentUser ? currentUser.name+' / '+currentUser.company+'　'+dateStr : dateStr;
+  const subText = currentUser ? currentUser.company+'　'+dateStr : dateStr;
   await drawSvgText(ctx,subText,PAD,195,{fontSize:36,color:'#9FE1CB',maxWidth:1800});
 
   let y = 280;
@@ -810,9 +791,8 @@ function renderTable() {
     tr.style.cursor = 'pointer';
     tr.innerHTML = `
       <td style="white-space:nowrap;color:var(--text-muted);font-size:11px">${ds}</td>
-      <td><div style="font-weight:500;font-size:13px">${r.name}</div>
-          <div style="font-size:11px;color:var(--text-muted)">${r.company}</div>
-          <div style="font-size:10px;color:var(--text-muted)">${r.email}</div></td>
+      <td><div style="font-weight:500;font-size:13px">${r.company}</div>
+          <div style="font-size:11px;color:var(--text-muted)">${r.employee_size||'—'}　${r.industry||'—'}</div></td>
       <td><span class="pill" style="background:#E6F1FB;color:#185FA5">${r.type}</span></td>
       <td style="text-align:center">
         <div style="font-size:22px;font-weight:700;color:${sc};line-height:1">${r.score}<span style="font-size:12px;font-weight:400;color:var(--text-muted)">${unit}</span></div>
@@ -880,8 +860,8 @@ function openDetail(r) {
       <button onclick="this.closest('[style*=fixed]').remove()" style="position:absolute;top:12px;right:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">×</button>
       <div style="margin-bottom:1.25rem">
         <p style="font-size:11px;color:var(--text-muted);margin-bottom:2px">${ds}　${r.type}</p>
-        <h3 style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:2px">${r.name}</h3>
-        <p style="font-size:13px;color:var(--text-muted)">${r.company}　${r.email}</p>
+        <h3 style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:2px">${r.company}</h3>
+        <p style="font-size:13px;color:var(--text-muted)">${r.employee_size||'—'}　${r.industry||'—'}</p>
         ${r.employee_size?`<p style="font-size:12px;color:var(--text-muted);margin-top:2px">従業員：${r.employee_size}　業種：${r.industry||'—'}</p>`:''}
       </div>
       <div style="text-align:center;margin-bottom:1.25rem;padding:1rem;background:var(--bg);border-radius:12px">
