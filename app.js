@@ -818,7 +818,7 @@ function renderTable() {
     const tr = document.createElement('tr');
     tr.dataset.id = r.id;
     tr.innerHTML = `
-      <td onclick="event.stopPropagation()"><input type="checkbox" class="row-chk" data-id="${r.id}" style="width:15px;height:15px;cursor:pointer;accent-color:#E24B4A"></td>
+      <td onclick="event.stopPropagation()"><input type="checkbox" class="row-chk" data-id="${r.id}" onchange="updateSelectBanner()" style="width:15px;height:15px;cursor:pointer;accent-color:#E24B4A"></td>
       <td style="white-space:nowrap;color:var(--text-muted);font-size:11px">${ds}</td>
       <td style="font-weight:500;font-size:13px">${r.company}</td>
       <td style="font-size:12px">${r.industry||'—'}</td>
@@ -841,6 +841,19 @@ function setSort(key) {
 
 function toggleAllCheck(el) {
   document.querySelectorAll('.row-chk').forEach(c => c.checked = el.checked);
+  updateSelectBanner();
+}
+
+function updateSelectBanner() {
+  const checked = document.querySelectorAll('.row-chk:checked');
+  const banner = document.getElementById('select-banner');
+  const label = document.getElementById('select-count-label');
+  if (checked.length > 0) {
+    banner.style.display = 'flex';
+    label.textContent = checked.length + '件を選択中';
+  } else {
+    banner.style.display = 'none';
+  }
 }
 
 async function deleteChecked() {
@@ -850,6 +863,7 @@ async function deleteChecked() {
   try {
     const { error } = await db.from('results').delete().in('id', ids);
     if (error) throw error;
+    document.getElementById('select-banner').style.display = 'none';
     await loadAdminData();
   } catch(e) { alert('削除に失敗しました: ' + e.message); }
 }
