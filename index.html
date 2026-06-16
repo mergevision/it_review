@@ -341,14 +341,18 @@
             <option value="101+">101名以上</option>
           </select>
         </div>
+        <!-- 選択中バナー（チェック時のみ表示） -->
+        <div id="select-banner" style="display:none;align-items:center;justify-content:space-between;padding:10px 14px;background:#FCEBEB;border:1px solid #F7C1C1;border-radius:var(--radius);margin-bottom:.75rem">
+          <span style="font-size:13px;font-weight:500;color:#501313" id="select-count-label">0件を選択中</span>
+          <button class="btn" style="font-size:12px;padding:6px 14px;background:var(--red);border-color:var(--red);color:#fff;font-weight:500" onclick="deleteChecked()">選択したデータを削除</button>
+        </div>
         <div class="table-wrap">
           <table class="results-tbl">
             <thead><tr></tr></thead>
             <tbody id="admin-tbody"></tbody>
           </table>
         </div>
-        <div style="margin-top:1rem;display:flex;gap:8px;justify-content:space-between;align-items:center;flex-wrap:wrap">
-          <button class="btn" style="font-size:12px;padding:6px 14px;border:1px solid var(--red);color:var(--red);background:var(--red-light)" onclick="deleteChecked()">☑ 選択したデータを削除</button>
+        <div style="margin-top:1rem;text-align:right">
           <button class="btn" style="font-size:11px;padding:5px 10px;border:1px solid #ccc;color:var(--text-muted)" onclick="clearAllData()">🗑 全データ削除</button>
         </div>
       </div>
