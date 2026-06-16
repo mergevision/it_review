@@ -735,7 +735,6 @@ async function loadAdminData() {
   renderTable();
 }
 
-// カテゴリ定義（詳細表示用）
 const ADMIN_SCATS = [
   {id:'asset',name:'資産管理'}, {id:'sec',name:'セキュリティ'},
   {id:'backup',name:'バックアップ'}, {id:'lic',name:'ライセンス'}, {id:'dx',name:'書類・DX'},
@@ -747,20 +746,50 @@ const ADMIN_ACATS = [
   {id:'info_sec',name:'情報教育'}, {id:'audit',name:'監査・契約'},
 ];
 
+let sortKey = 'created_at', sortAsc = false;
+
 function renderTable() {
   const filterType = document.getElementById('filter-type').value;
-  const filtered = filterType ? allResults.filter(r => r.type === filterType) : allResults;
+  const filterIndustry = document.getElementById('filter-industry-admin') ? document.getElementById('filter-industry-admin').value : '';
+  const filterSize = document.getElementById('filter-size-admin') ? document.getElementById('filter-size-admin').value : '';
+
+  let filtered = allResults.filter(r => {
+    if (filterType && r.type !== filterType) return false;
+    if (filterIndustry && r.industry !== filterIndustry) return false;
+    if (filterSize && r.employee_size !== filterSize) return false;
+    return true;
+  });
+
+  filtered = [...filtered].sort((a, b) => {
+    let va = a[sortKey], vb = b[sortKey];
+    if (sortKey === 'created_at') { va = new Date(va); vb = new Date(vb); }
+    if (sortKey === 'score') { va = Number(va); vb = Number(vb); }
+    if (va < vb) return sortAsc ? -1 : 1;
+    if (va > vb) return sortAsc ? 1 : -1;
+    return 0;
+  });
+
   document.getElementById('admin-count').textContent = '全' + filtered.length + '件';
+
+  const arrow = (k) => sortKey===k ? (sortAsc?'↑':'↓') : '↕';
+  document.querySelector('.results-tbl thead tr').innerHTML = `
+    <th style="width:28px"><input type="checkbox" id="chk-all" onchange="toggleAllCheck(this)"></th>
+    <th style="cursor:pointer" onclick="setSort('created_at')">日時 ${arrow('created_at')}</th>
+    <th style="cursor:pointer" onclick="setSort('company')">会社名 ${arrow('company')}</th>
+    <th style="cursor:pointer" onclick="setSort('industry')">業種 ${arrow('industry')}</th>
+    <th style="cursor:pointer" onclick="setSort('employee_size')">従業員数 ${arrow('employee_size')}</th>
+    <th>種別</th>
+    <th style="cursor:pointer" onclick="setSort('score')">スコア ${arrow('score')}</th>
+    <th>判定</th>
+    <th>カテゴリ別</th>`;
+
   const tbody = document.getElementById('admin-tbody'); tbody.innerHTML = '';
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:2rem">データがありません</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:2rem">データがありません</td></tr>';
     return;
   }
-  // テーブルヘッダーを差し替え
-  document.querySelector('.results-tbl thead tr').innerHTML =
-    '<th>日時</th><th>名前 / 会社名</th><th>種別</th><th>総合スコア</th><th>カテゴリ別</th>';
 
-  filtered.forEach((r,idx) => {
+  filtered.forEach(r => {
     const d = new Date(r.created_at);
     const ds = d.getFullYear()+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+String(d.getDate()).padStart(2,'0')
       +' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
@@ -772,7 +801,6 @@ function renderTable() {
     const cats = r.type==='詳細監査' ? ADMIN_ACATS : ADMIN_SCATS;
     const details = r.details || {};
 
-    // カテゴリ別ミニバー
     const miniBars = cats.map(c => {
       const p = details[c.id] ?? null;
       if (p === null) return '';
@@ -788,130 +816,55 @@ function renderTable() {
     }).join('');
 
     const tr = document.createElement('tr');
-    tr.style.cursor = 'pointer';
+    tr.dataset.id = r.id;
     tr.innerHTML = `
+      <td onclick="event.stopPropagation()"><input type="checkbox" class="row-chk" data-id="${r.id}" style="width:15px;height:15px;cursor:pointer;accent-color:#E24B4A"></td>
       <td style="white-space:nowrap;color:var(--text-muted);font-size:11px">${ds}</td>
-      <td><div style="font-weight:500;font-size:13px">${r.company}</div>
-          <div style="font-size:11px;color:var(--text-muted)">${r.employee_size||'—'}　${r.industry||'—'}</div></td>
+      <td style="font-weight:500;font-size:13px">${r.company}</td>
+      <td style="font-size:12px">${r.industry||'—'}</td>
+      <td style="font-size:12px">${r.employee_size||'—'}</td>
       <td><span class="pill" style="background:#E6F1FB;color:#185FA5">${r.type}</span></td>
-      <td style="text-align:center">
-        <div style="font-size:22px;font-weight:700;color:${sc};line-height:1">${r.score}<span style="font-size:12px;font-weight:400;color:var(--text-muted)">${unit}</span></div>
-        <span class="pill" style="${rb};margin-top:4px;display:inline-block">${r.risk}</span>
-      </td>
-      <td style="min-width:160px">${miniBars || '<span style="font-size:11px;color:var(--text-muted)">詳細なし</span>'}</td>`;
-    tr.onclick = () => openDetail(r);
+      <td style="text-align:center;font-size:20px;font-weight:700;color:${sc}">${r.score}<span style="font-size:11px;font-weight:400;color:var(--text-muted)">${unit}</span></td>
+      <td><span class="pill" style="${rb}">${r.risk}</span></td>
+      <td style="min-width:150px">${miniBars||'<span style="font-size:11px;color:var(--text-muted)">詳細なし</span>'}</td>`;
+    tr.style.cursor = 'pointer';
+    tr.onclick = (e) => { if(e.target.type!=='checkbox') openDetail(r); };
     tbody.appendChild(tr);
   });
 }
 
-// 詳細モーダル
-function openDetail(r) {
-  const unit = r.type==='詳細監査'?'%':'点';
-  const cats = r.type==='詳細監査' ? ADMIN_ACATS : ADMIN_SCATS;
-  const details = r.details || {};
-  const sc = r.score>=75?'#1D9E75':r.score>=50?'#BA7517':'#E24B4A';
-  const rb = r.risk==='低リスク'||r.risk==='管理良好'?'color:#085041;background:#9FE1CB'
-    :r.risk==='中リスク'||r.risk==='要改善'?'color:#412402;background:#FAC775'
-    :'color:#501313;background:#F7C1C1';
-  const d = new Date(r.created_at);
-  const ds = d.getFullYear()+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+String(d.getDate()).padStart(2,'0');
-
-  const fbMap = {
-    asset:   {ok:'資産管理は概ね良好です。',       mid:'資産管理に改善の余地があります。',   ng:'資産管理のリスクが高い状態です。'},
-    sec:     {ok:'セキュリティは概ね良好です。',   mid:'セキュリティに改善の余地があります。',ng:'セキュリティリスクが高い状態です。'},
-    backup:  {ok:'バックアップは概ね良好です。',   mid:'バックアップに改善の余地があります。',ng:'バックアップが不十分です。'},
-    lic:     {ok:'ライセンス管理は良好です。',     mid:'ライセンス管理に改善が必要です。',    ng:'ライセンス管理が不十分です。'},
-    dx:      {ok:'DX化は概ね進んでいます。',       mid:'紙業務が一部残っています。',          ng:'紙業務が多く残っています。'},
-    helpdesk:{ok:'ヘルプデスクは良好です。',       mid:'ヘルプデスクに改善が必要です。',      ng:'ヘルプデスク体制が不十分です。'},
-    software:{ok:'ソフト管理は良好です。',         mid:'ソフト管理に改善が必要です。',        ng:'ソフト管理が不十分です。'},
-    server:  {ok:'サーバ管理は良好です。',         mid:'サーバ管理に改善が必要です。',        ng:'サーバ管理が不十分です。'},
-    security:{ok:'セキュリティ管理は良好です。',   mid:'セキュリティ管理に改善が必要です。',  ng:'セキュリティ管理が不十分です。'},
-    access:  {ok:'アクセス管理は良好です。',       mid:'アクセス管理に改善が必要です。',      ng:'アクセス管理が不十分です。'},
-    info_sec:{ok:'情報教育は良好です。',           mid:'情報教育に改善が必要です。',          ng:'情報教育が不十分です。'},
-    audit:   {ok:'監査対応は良好です。',           mid:'監査対応に改善が必要です。',          ng:'監査対応が不十分です。'},
-  };
-
-  const catBars = cats.map(c => {
-    const p = details[c.id] ?? null;
-    if (p === null) return '';
-    const bc = p>=75?'#1D9E75':p>=50?'#BA7517':'#E24B4A';
-    const fb = fbMap[c.id]||{ok:'良好です。',mid:'改善の余地があります。',ng:'要対応です。'};
-    const msg = p>=75?fb.ok:p>=50?fb.mid:fb.ng;
-    const [fr,fg,fb2] = p>=75?[234,243,222]:p>=50?[250,238,218]:[252,235,235];
-    return `<div style="margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <span style="font-size:13px;font-weight:500;color:var(--text)">${c.name}</span>
-        <span style="font-size:15px;font-weight:700;color:${bc}">${p}${unit}</span>
-      </div>
-      <div style="height:8px;background:#dde8e8;border-radius:4px;margin-bottom:5px">
-        <div style="height:8px;border-radius:4px;background:${bc};width:${p}%"></div>
-      </div>
-      <div style="font-size:12px;color:#28404a;padding:6px 10px;background:rgb(${fr},${fg},${fb2});border-radius:6px;border-left:3px solid ${bc}">${msg}</div>
-    </div>`;
-  }).join('');
-
-  // レーダーチャートcanvas用ID
-  const chartId = 'modal-radar-'+Date.now();
-
-  const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:1rem';
-  overlay.innerHTML = `
-    <div style="background:var(--surface);border-radius:16px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;padding:1.5rem;position:relative">
-      <button onclick="this.closest('[style*=fixed]').remove()" style="position:absolute;top:12px;right:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center">×</button>
-      <div style="margin-bottom:1.25rem">
-        <p style="font-size:11px;color:var(--text-muted);margin-bottom:2px">${ds}　${r.type}</p>
-        <h3 style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:2px">${r.company}</h3>
-        <p style="font-size:13px;color:var(--text-muted)">${r.employee_size||'—'}　${r.industry||'—'}</p>
-        ${r.employee_size?`<p style="font-size:12px;color:var(--text-muted);margin-top:2px">従業員：${r.employee_size}　業種：${r.industry||'—'}</p>`:''}
-      </div>
-      <div style="text-align:center;margin-bottom:1.25rem;padding:1rem;background:var(--bg);border-radius:12px">
-        <p style="font-size:12px;color:var(--text-muted);margin-bottom:4px">総合スコア</p>
-        <div style="font-size:48px;font-weight:700;color:${sc};line-height:1">${r.score}<span style="font-size:18px;font-weight:400;color:var(--text-muted)">${unit}</span></div>
-        <span style="display:inline-block;padding:4px 16px;border-radius:20px;font-size:13px;font-weight:700;margin-top:8px;${rb}">${r.risk}</span>
-      </div>
-      <div style="position:relative;width:100%;height:240px;margin-bottom:1.25rem">
-        <canvas id="${chartId}"></canvas>
-      </div>
-      <div style="margin-bottom:1rem">${catBars}</div>
-    </div>`;
-  overlay.onclick = e => { if(e.target===overlay) overlay.remove(); };
-  document.body.appendChild(overlay);
-
-  // レーダーチャート描画
-  setTimeout(() => {
-    const canvas = document.getElementById(chartId);
-    if (!canvas || !window.Chart) return;
-    const catVals = cats.map(c => details[c.id] ?? 0);
-    new Chart(canvas, {
-      type: 'radar',
-      data: {
-        labels: cats.map(c => c.name),
-        datasets: [{ label: 'スコア', data: catVals,
-          backgroundColor: 'rgba(29,158,117,0.15)', borderColor: '#1D9E75',
-          borderWidth: 2, pointBackgroundColor: '#1D9E75', pointRadius: 4 }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: { r: { min:0, max:100,
-          ticks: { stepSize:25, font:{size:10}, color:'#7A9CA8', backdropColor:'transparent' },
-          grid: { color:'rgba(0,0,0,0.08)' },
-          angleLines: { color:'rgba(0,0,0,0.08)' },
-          pointLabels: { font:{size:11,family:"'Noto Sans JP',sans-serif"}, color:'#1a2e35' }
-        }}
-      }
-    });
-  }, 100);
+function setSort(key) {
+  if (sortKey === key) sortAsc = !sortAsc;
+  else { sortKey = key; sortAsc = false; }
+  renderTable();
 }
 
+function toggleAllCheck(el) {
+  document.querySelectorAll('.row-chk').forEach(c => c.checked = el.checked);
+}
+
+async function deleteChecked() {
+  const ids = [...document.querySelectorAll('.row-chk:checked')].map(c => c.dataset.id);
+  if (ids.length === 0) { alert('削除するデータを選択してください'); return; }
+  if (!confirm(ids.length + '件のデータを削除しますか？')) return;
+  try {
+    const { error } = await db.from('results').delete().in('id', ids);
+    if (error) throw error;
+    await loadAdminData();
+  } catch(e) { alert('削除に失敗しました: ' + e.message); }
+}
 
 async function clearAllData() {
   if (!confirm('全データを削除しますか？この操作は取り消せません。')) return;
   try {
-    await db.from('results').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    loadAdminData();
-  } catch (e) { alert('削除に失敗しました'); }
+    const ids = allResults.map(r => r.id);
+    if (ids.length === 0) { alert('削除するデータがありません'); return; }
+    const { error } = await db.from('results').delete().in('id', ids);
+    if (error) throw error;
+    await loadAdminData();
+  } catch(e) { alert('削除に失敗しました: ' + e.message); }
 }
+
 
 function exportCSV() {
   if (!allResults.length) { alert('データがありません'); return; }
