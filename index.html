@@ -315,27 +315,41 @@
       <div id="admin-loading" class="loading"><div class="spinner"></div>読み込み中...</div>
       <div id="admin-content" style="display:none">
         <div class="stats-grid" id="admin-stats"></div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
-          <p style="font-size:13px;color:var(--text-muted)" id="admin-count"></p>
-          <div class="flex-row">
-            <select id="filter-type" style="font-size:12px;padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;background:var(--surface)" onchange="renderTable()">
-              <option value="">すべて</option>
-              <option value="簡易診断">簡易診断のみ</option>
-              <option value="詳細監査">詳細監査のみ</option>
-            </select>
-          </div>
+        <!-- フィルター行 -->
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:.75rem">
+          <p style="font-size:13px;color:var(--text-muted);flex:1;min-width:60px" id="admin-count"></p>
+          <select id="filter-type" style="font-size:12px;padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;background:var(--surface)" onchange="renderTable()">
+            <option value="">種別：すべて</option>
+            <option value="簡易診断">簡易診断のみ</option>
+            <option value="詳細監査">詳細監査のみ</option>
+          </select>
+          <select id="filter-industry-admin" style="font-size:12px;padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;background:var(--surface)" onchange="renderTable()">
+            <option value="">業種：すべて</option>
+            <option value="製造">製造</option>
+            <option value="IT・通信">IT・通信</option>
+            <option value="小売・流通">小売・流通</option>
+            <option value="医療・福祉">医療・福祉</option>
+            <option value="建設">建設</option>
+            <option value="サービス">サービス</option>
+            <option value="その他">その他</option>
+          </select>
+          <select id="filter-size-admin" style="font-size:12px;padding:5px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;background:var(--surface)" onchange="renderTable()">
+            <option value="">従業員：すべて</option>
+            <option value="1-10">1〜10名</option>
+            <option value="11-30">11〜30名</option>
+            <option value="31-100">31〜100名</option>
+            <option value="101+">101名以上</option>
+          </select>
         </div>
         <div class="table-wrap">
           <table class="results-tbl">
-            <thead><tr>
-              <th>日時</th><th>名前</th><th>会社名</th><th>メール</th>
-              <th>従業員</th><th>業種</th><th>種別</th><th>スコア</th><th>判定</th>
-            </tr></thead>
+            <thead><tr></tr></thead>
             <tbody id="admin-tbody"></tbody>
           </table>
         </div>
-        <div style="margin-top:1rem;text-align:right">
-          <button class="btn" style="font-size:11px;padding:5px 10px;border:1px solid var(--red);color:var(--red);background:var(--red-light)" onclick="clearAllData()">🗑 全データ削除</button>
+        <div style="margin-top:1rem;display:flex;gap:8px;justify-content:space-between;align-items:center;flex-wrap:wrap">
+          <button class="btn" style="font-size:12px;padding:6px 14px;border:1px solid var(--red);color:var(--red);background:var(--red-light)" onclick="deleteChecked()">☑ 選択したデータを削除</button>
+          <button class="btn" style="font-size:11px;padding:5px 10px;border:1px solid #ccc;color:var(--text-muted)" onclick="clearAllData()">🗑 全データ削除</button>
         </div>
       </div>
     </div>
